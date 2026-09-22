@@ -10,7 +10,7 @@ from app.database import engine, Base, get_db
 import app.models as models
 import app.schemas as schemas
 
-app = FastAPI(title="KeyShield Dev Engine", version="0.4.0")
+app = FastAPI(title="KeyShield Dev Engine", version="0.5.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,7 +38,7 @@ async def test_db_connection(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         return {"status": "Database connection offline", "error": str(e)}
 
-# --- USER SIGNUP ENDPOINT ---
+
 @app.post("/api/signup", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 async def signup(user_data: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     query = select(models.User).where(models.User.email == user_data.email)
@@ -52,7 +52,7 @@ async def signup(user_data: schemas.UserCreate, db: AsyncSession = Depends(get_d
     await db.refresh(new_user)
     return new_user
 
-# --- API KEY GENERATION ENDPOINT ---
+
 @app.post("/api/users/{user_id}/keys", response_model=schemas.KeyResponse, status_code=status.HTTP_201_CREATED)
 async def generate_api_key(
     key_data: schemas.KeyCreate,
@@ -74,7 +74,7 @@ async def generate_api_key(
     await db.refresh(new_key)
     return new_key
 
-# --- NEW ROUTE: FETCH & FILTER USER KEYS (GET + QUERY PARAMETERS) ---
+
 @app.get("/api/users/{user_id}/keys", response_model=List[schemas.KeyResponse], status_code=status.HTTP_200_OK)
 async def get_user_keys(
     user_id: int = Path(..., description="The ID of the user whose keys you want to fetch", gt=0),
@@ -87,11 +87,35 @@ async def get_user_keys(
         raise HTTPException(status_code=404, detail=f"User account with ID {user_id} does not exist.")
 
     stmt = select(models.ApiKey).where(models.ApiKey.user_id == user_id)
-
     if active_only is not None:
         stmt = stmt.where(models.ApiKey.is_active == active_only)
 
     result = await db.execute(stmt)
-    keys_list = result.scalars().all()
+    return result.scalars().all()
+
+
+@app.patch("/api/keys/{key_id}/deactivate", response_model=schemas.KeyResponse, status_code=status.HTTP_200_OK)
+async def deactivate_key(
+    key_id: int = Path(..., description="The unique ID of the API key to deactivate", gt=0),
+    db: AsyncSession = Depends(get_db)
+):
     
-    return keys_list
+    key_query = select(models.ApiKey).where(models.ApiKey.id == key_id)
+    key_result = await db.execute(key_query)
+    db_key = key_result.scalars().first()
+
+    
+    if not db_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"API Key with ID {key_id} not found."
+        )
+
+   
+    db_key.is_active = False
+
+    
+    await db.commit()
+    await db.refresh(db_key)
+    
+    return db_key
