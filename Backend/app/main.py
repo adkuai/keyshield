@@ -1,5 +1,7 @@
+# backend/app/main.py
 import secrets
-from fastapi import FastAPI, Depends, HTTPException, status, Path, Query, Header
+import time
+from fastapi import FastAPI, Depends, HTTPException, status, Path, Query, Header, BackgroundTasks, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,8 +14,9 @@ import app.models as models
 import app.schemas as schemas
 from app.security import hash_password, verify_password, create_access_token
 
-app = FastAPI(title="KeyShield Dev Engine", version="0.7.0")
+app = FastAPI(title="KeyShield Dev Engine", version="0.8.0")
 
+# 1. GLOBAL MIDDLEWARE: CORS POLICY ENGINE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,14 +25,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.on_event("startup")
-async def startup_event():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+# 2. GLOBAL MIDDLEWARE: CUSTOM PERFORMANCE PROFILING TIME INTERCEPTOR
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    # Intercept: Start clock before routing hits endpoint
+    start_time = time.perf_counter()
+    
+    # Process the request down the pipeline
+    response = await call_next(request)
+    
+    # Intercept: Stop clock after endpoint logic resolves
+    process_time = time.perf_counter() - start_time
+    
+    # Convert execution duration to milliseconds string format
+    execution_ms = f"{process_time * 1000:.2f}ms"
+    
+    # Inject custom performance headers into the network response packet
+    response.headers["X-Process-Time"] = execution_ms
+    print(f"[PERF-LOG] Network Route: {request.url.path} | Execution Duration: {execution_ms}")
+    
+    return response
 
-@app.get("/")
-def read_root():
-    return {"message": "KeyShield API is running"}
+
+# --- BACKGROUND WORKER TASK SIMULATOR ---
+def log_key_activity_worker(key_name: str, key_owner_id: int):
+    """Simulates a heavy logging operation that executes after the response is sent."""
+    print(f"\n[BACKGROUND WORKER START] Processing audit logs for key: '{key_name}'...")
+    # Simulating a small database write delay or processing lag
+    time.sleep(1.5)
+    print(f"[BACKGROUND WORKER SUCCESS] Audit entry saved to disk for User #{key_owner_id}.\n")
+
 
 # --- DEVELOPER CLIENT AUTH DEPENDENCY GUARD (From Day 7) ---
 async def verify_developer_api_key(x_api_key: Optional[str] = Header(None), db: AsyncSession = Depends(get_db)):
@@ -42,7 +67,18 @@ async def verify_developer_api_key(x_api_key: Optional[str] = Header(None), db: 
         raise HTTPException(status_code=403, detail="Invalid or deactivated API Key.")
     return db_key
 
-# --- REVISED USER SIGNUP ENDPOINT: NOW WITH PASSWORD HASHING ---
+
+# --- SYSTEM LOG INGESTION ENDPOINTS ---
+
+@app.on_event("startup")
+async def startup_event():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+@app.get("/")
+def read_root():
+    return {"message": "KeyShield API is running"}
+
 @app.post("/api/signup", response_model=schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 async def signup(user_data: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     query = select(models.User).where(models.User.email == user_data.email)
@@ -50,27 +86,19 @@ async def signup(user_data: schemas.UserCreate, db: AsyncSession = Depends(get_d
     if result.scalars().first():
         raise HTTPException(status_code=400, detail="An account with this email is already registered.")
 
-    # Convert raw text password into an encrypted cryptographic hash
     secured_hash = hash_password(user_data.password)
-
     new_user = models.User(email=user_data.email, hashed_password=secured_hash)
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
     return new_user
 
-# --- NEW ROUTE: WEB LOGIN ENDPOINT (ISSUES SIGNED JWT ACCESS TOKENS) ---
 @app.post("/api/login", response_model=schemas.TokenResponse)
-async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), 
-    db: AsyncSession = Depends(get_db)
-):
-    # Find user matching incoming username form field parameter entry
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     query = select(models.User).where(models.User.email == form_data.username)
     result = await db.execute(query)
     user = result.scalars().first()
 
-    # Reject authorization request if user record missing or hash verification fails
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -78,11 +106,8 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Issue a signed JWT tracking user identity parameters
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
-
-# --- OTHER CORE APP MANAGEMENT ROUTE LIFECYCLES ---
 
 @app.post("/api/users/{user_id}/keys", response_model=schemas.KeyResponse, status_code=status.HTTP_201_CREATED)
 async def generate_api_key(key_data: schemas.KeyCreate, user_id: int = Path(..., gt=0), db: AsyncSession = Depends(get_db)):
@@ -117,10 +142,25 @@ async def deactivate_key(key_id: int, db: AsyncSession = Depends(get_db)):
     await db.refresh(db_key)
     return db_key
 
+
+# --- REVISED AUTHENTICATED RESOURCE ROUTE: NOW WITH BACKGROUND LOGGING ---
 @app.get("/api/v1/secure-data")
-async def get_secure_resource(authenticated_key: models.ApiKey = Depends(verify_developer_api_key)):
+async def get_secure_resource(
+    background_tasks: BackgroundTasks,
+    authenticated_key: models.ApiKey = Depends(verify_developer_api_key)
+):
+    """Locked data grid pathway. Registers a background tracking step upon entry validation verification."""
+    
+    # 1. Enqueue the slow logging execution task to the background pool thread manager
+    background_tasks.add_task(
+        log_key_activity_worker, 
+        key_name=authenticated_key.name, 
+        key_owner_id=authenticated_key.user_id
+    )
+    
+    # 2. Return an immediate, fast response back to the client while the task processes quietly
     return {
         "status": "Authorized Access Grant Verified",
-        "secret_payload": "This data payload belongs strictly to authenticated corporate client systems.",
+        "secret_payload": "This data pipeline is protected and monitored by background metrics handlers.",
         "key_owner_id": authenticated_key.user_id
     }
