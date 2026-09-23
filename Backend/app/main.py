@@ -1,4 +1,3 @@
-# backend/app/main.py
 import secrets
 import time
 from fastapi import FastAPI, Depends, HTTPException, status, Path, Query, Header, BackgroundTasks, Request
