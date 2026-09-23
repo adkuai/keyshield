@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 import datetime  # Changed to standard module import
+from typing import Optional
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -27,3 +28,12 @@ class KeyResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
