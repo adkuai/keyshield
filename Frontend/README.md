@@ -4,7 +4,7 @@ KeyShield is a production-grade, full-stack API Gateway and Credential Managemen
 🚀 Local Deployment Guide
 Follow this systematic setup sequence to configure and run the entire KeyShield application environment on your local machine:
 
-#1. Database Infrastructure Provisioning
+# 1. Database Infrastructure Provisioning
 Open your PostgreSQL terminal workspace or pgAdmin interface, connect to your active local engine instance, and execute the following commands to initialize the required development and testing schemas:
 
 sql
@@ -13,7 +13,7 @@ CREATE DATABASE keyshield_db;
 
 CREATE DATABASE keyshield_test_db;
 
-#2. Backend Environment Configuration & Server Boot
+# 2. Backend Environment Configuration & Server Boot
 
 Navigate into the backend project workspace directory from your system terminal, initialize an isolated virtual python node environment, and install the underlying production dependencies:
 
@@ -43,7 +43,7 @@ bash
 
 fastapi dev app/main.py
 
-#3. Automated Testing Execution (Optional Verification)
+# 3. Automated Testing Execution (Optional Verification)
 
 To validate the structural data persistence integrity, authentication endpoints, and gateway checks automatically, open a parallel terminal shell and run the test suite:
 
@@ -55,7 +55,7 @@ cd backend
 
 pytest -v
 
-#4. React UI Dashboard Compilation & Boot
+# 4. React UI Dashboard Compilation & Boot
 
 Open a final, independent terminal window session, navigate straight into your frontend client folder path, pull down the Node package modules, and start the local compiler engine:
 
