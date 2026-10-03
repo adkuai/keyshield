@@ -1,34 +1,35 @@
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
 from pwdlib import PasswordHash
 import jwt
 
-# Instantiate the modern secure cryptographic hashing manager
-password_hash = PasswordHash.recommended()
-
-SECRET_KEY = "LOCAL_DEVELOPMENT_ONLY_SUPER_SECRET_KEY"
+pwd_context = PasswordHash.recommended()
+SECRET_KEY = "KEYS_MASTER_SECRET_SESSION_SIGNING_KEY"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 def hash_password(password: str) -> str:
-    """Transforms a plain text password into an unreadable secure cryptographic hash."""
-    return password_hash.hash(password)
+    return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Compares incoming plain text login entry against the encrypted hash string."""
     try:
-        return password_hash.verify(plain_password, hashed_password)
+        return pwd_context.verify(plain_password, hashed_password)
     except Exception:
         return False
 
+def generate_key_hash(secret_string: str) -> str:
+    """Secure SHA-256 key hashing algorithm."""
+    return hashlib.sha256(secret_string.encode()).hexdigest()
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """Generates an encrypted JSON Web Token (JWT) tracking session identification data."""
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=60))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def decode_access_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload.get("sub")
+    except jwt.PyJWTError:
+        return None
